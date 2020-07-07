@@ -1,3 +1,6 @@
+# source /home/victor/simple_app/bin/activate
+# ToDo: debug product ID selector (for plotting) not displaying
+
 import numpy as np
 from bokeh.io import curdoc
 from bokeh.layouts import column, row
@@ -11,10 +14,11 @@ from io import StringIO
 class UIClass:
 
     def __init__(self):
-        self.status = 'init' # init, data_inputted
-        self.used_cols = []
         self.input_df = pd.DataFrame()
         self.inputs = None
+        
+        self.demand_plot = figure()
+        self.demand_plot.line('x', 'y', source=ColumnDataSource(data=dict(x=[0], y=[0])))
 
         # Set up data
         self.N = 200
@@ -23,14 +27,16 @@ class UIClass:
         self.source = ColumnDataSource(data=dict(x=self.x, y=self.y))
 
         # Set up widgets
-        self.data_source_selector = Select(title='Step 1/5: Select Data', value='Use Example Data',
-                                       options=['Use Example Data', 'Upload Data'])
+        self.data_source_selector = Select(title='Step 1/5: Select Data', value='Not Selected',
+                                       options=['Not Selected', 'Use Example Data', 'Upload Data'])
         self.file_input = FileInput(accept='.csv,.xlsx')
         self.data_table = DataTable()
+        self.data_preview_paragraph = Paragraph(text='Data Preview:')
         self.values_col_selector = Select(title='Step 2/5: Select column with demand values', value='Not Selected',
                                        options=['Not Selected'])
         self.product_id_col_selector = Select(title='Step 3/5: Select column with product ID', value='Not Selected',
                                        options=['Not Selected'])
+        self.product_selector = Select(title='Select Product to Display', value='v1', options=['v1', 'v2'])
         # self.text = TextInput(title='title', value='my sine wave')
         # self.offset = Slider(title='offset', value=0.0, start=-5.0, end=5.0, step=0.1)
         # self.amplitude = Slider(title='amplitude', value=1.0, start=-5.0, end=5.0, step=0.1)
@@ -41,9 +47,16 @@ class UIClass:
                         'file_input': self.file_input,
                         'values_col_selector': self.values_col_selector,
                         'product_id_col_selector': self.product_id_col_selector,
+                        'data_preview_paragraph': self.data_preview_paragraph,
                         'data_table': self.data_table,
+                        'product_selector': self.product_selector,
+                        'demand_plot': self.demand_plot,
                         #'': self.,
         }
+
+        self.values_colname = None
+        self.product_id_colname = None
+        self.product_ids = []
 
     def _change_widgets_visibility(self, names, names_show_or_hide='show'):
         displaying = True if names_show_or_hide == 'show' else False
@@ -61,20 +74,15 @@ class UIClass:
 
     def select_data_source(self, attrname, old_val, new_val):
         print('===INSIDE select_data_source: {}, {}, {}'.format(attrname, old_val, new_val))
-        # print('CHILDREN: {}; 1: {}'.format(self.row.children, self.row.children[1].children))
-        # if len(self.row.children[1].children) == 0:
-        #     self.plot.visible=True
-        #     self.row.children[1].children.insert(-1, self.plot)
         if new_val == 'Upload Data':
             self.hide_all_widgets_except(['data_source_selector', 'file_input'])
-            #self.file_input.visible = True
-            #self.values_col_selector.visible = False
-        else: # Use Example Data
-            #self.file_input.visible = False
+        elif new_val == 'Use Example Data':
             self.input_df = pd.read_csv('default_table.csv')
             self.prepare_values_col_selection()
             self.preview_input_df()
-            self.hide_all_widgets_except(['data_source_selector', 'values_col_selector', 'data_table'])
+            self.hide_all_widgets_except(['data_source_selector', 'values_col_selector', 'data_preview_paragraph', 'data_table'])
+        else: # Not Selected
+            self.hide_all_widgets_except(['data_source_selector'])
 
     def upload_fit_data(self, attr, old, new):
         print('fit data upload succeeded')
@@ -87,28 +95,64 @@ class UIClass:
         self.prepare_values_col_selection()
         self.hide_all_widgets_except(['data_source_selector', 'file_input', 'values_col_selector'])
         self.preview_input_df()
-        #self.display()
-        # if self.offset.visible:
-        #     self.offset.visible = False
-        # else:
-        #     self.offset.visible = True
-        #self.prepare_values_col_selection()
 
     def preview_input_df(self):
         columns = [TableColumn(field=Ci, title=Ci) for Ci in self.input_df.columns]
         self.data_table.columns = columns
         self.data_table.source = ColumnDataSource(self.input_df.head(5))
+        print('LAYOUT: ', self.layout)
+        print('CHILDREN: {}; 1: {}'.format(self.row_data_input.children, self.row_data_input.children[1].children))
+        while len(self.row_data_input.children[1].children) != 1:
+            self.row_data_input.children[1].children.pop()
+        self.row_data_input.children[1].children.append(self.data_table)
+        #self.row_data_input.children[1].children.insert(-1, self.data_preview_paragraph)
         self.data_table.visible = True
-        #data_table = DataTable(columns=columns, source=ColumnDataSource(self.input_df))
-        print('CHILDREN: {}; 1: {}'.format(self.row.children, self.row.children[1].children))
-        while len(self.row.children[1].children) != 0:
-            self.row.children[1].children.pop()
-        #     #self.plot.visible=True
-        self.row.children[1].children.insert(-1, self.data_table)
+        self.data_preview_paragraph.visible = True
 
     def prepare_values_col_selection(self):
         self.values_col_selector.options = ['Not Selected'] + self.input_df.columns.tolist()
-        #self.values_col_selector.visible = True
+
+    def select_values_colname(self, attrname, old_val, new_val):
+        if new_val == 'Not Selected':
+            pass
+            self.hide_all_widgets_except(['data_source_selector',
+                                          'values_col_selector',
+                                          'data_table',
+                                          'data_preview_paragraph',
+                                          'data_table']+self.get_additional_cols_to_show())
+        else:
+            self.values_colname = new_val
+            available_cols = set(self.input_df.columns)
+            available_cols.remove(new_val)
+            self.product_id_col_selector.options = ['Not Selected'] + list(available_cols)
+            self.product_id_col_selector.visible=True
+            self.hide_all_widgets_except(['data_source_selector',
+                                          'values_col_selector',
+                                          'product_id_col_selector',
+                                          'data_preview_paragraph',
+                                          'data_table'
+                                          ]+self.get_additional_cols_to_show())
+
+    def get_additional_cols_to_show(self):
+        return ['file_input'] if self.data_source_selector.value == 'Upload Data' else []
+
+    def select_product_id_colname(self, attrname, old_val, new_val):
+        if new_val == 'Not Selected':
+            self.hide_all_widgets_except(['data_source_selector',
+                                          'values_col_selector',
+                                          'data_table',
+                                          'product_id_col_selector']+self.get_additional_cols_to_show())
+        else:
+            self.product_id_colname = new_val
+            print('QQQ111: ', self.input_df[self.product_id_colname].unique())
+            print('QQQ222: ', self.input_df[self.product_id_colname].unique().tolist())
+            self.product_ids = self.input_df[self.product_id_colname].unique().astype(str).tolist()
+            self.product_selector = Select(title='Select product ID to display', value=self.product_ids[0],
+                                       options=self.product_ids)
+
+            self.product_selector.visible = True
+            self.demand_plot.visible = True
+
 
     def update_title(self, attrname, old, new):
         self.plot.title.text = self.text.value
@@ -133,61 +177,43 @@ class UIClass:
                       x_range=[0, 4 * np.pi], y_range=[-2.5, 2.5])
         self.plot.line('x', 'y', source=self.source, line_width=3, line_alpha=0.6)
 
-        #self.text.on_change('value', self.update_title)
-
-        # for w in [self.offset, self.amplitude, self.phase, self.freq]:
-        #     w.on_change('value', self.update_data)
-
         for w in [self.file_input,
                   self.values_col_selector,
                   self.product_id_col_selector,
-                  # self.text,
-                  # self.offset,
-                  # self.amplitude,
-                  # self.phase,
-                  # self.freq,
                   self.plot]:
             w.visible = False
-
-        # for w in [text, offset, amplitude, phase, freq]:
-        #     w.width = 400
 
         # Set up layouts and add to document
         self.inputs = column(self.data_source_selector,
                              self.file_input,
                              self.values_col_selector,
                              self.product_id_col_selector,
-                             # self.text,
-                             # self.offset,
-                             # self.amplitude,
-                             # self.phase,
-                             # self.freq
                              )
 
-        #for input in self.inputs:
-        #    input.sizing_mode = 'scale_both'
-
-
-        self.data_source_selector.visible = True
+        #self.data_source_selector.visible = True
+        self.hide_all_widgets_except(['data_source_selector'])
         self.data_source_selector.on_change('value', self.select_data_source)
+        self.values_col_selector.on_change('value', self.select_values_colname)
+        self.product_id_col_selector.on_change('value', self.select_product_id_colname)
 
-        # if self.status == 'init':
-        #     curdoc().add_root(row(self.inputs))
-        #     curdoc().title = 'Demand Forecasting'
-        # else:
-        self.col_left = column(self.inputs)
-        #self.col_right = column()
-        self.col_right = column()
+        self.col_left = self.inputs
+        self.col_right = column(self.data_preview_paragraph)
 
-        self.col_left.sizing_mode = 'scale_both' # doesn't work
-        self.col_right.sizing_mode = 'scale_both' # doesn't work
+        self.col_left.width = 300
+        #self.col_right.max_width = 500
+        #self.col_right.sizing_mode = 'scale_width'
 
-        self.row = row(self.col_left, self.col_right)
-        curdoc().add_root(self.row)
+        self.row_data_input = row(self.col_left, self.col_right)
+        self.row_data_input.sizing_mode = 'scale_both'
+
+        self.row_demand_plot = column(self.product_selector, self.demand_plot)
+
+        self.layout = column(self.row_data_input, self.row_demand_plot)
+
+        curdoc().add_root(self.layout)
         curdoc().title = 'Demand Forecasting'
 
 
-#if __name__ == '__main__':
 uiclass = UIClass()
 uiclass.display()
 #curdoc().add_root(row(uiclass.inputs, uiclass.plot))
