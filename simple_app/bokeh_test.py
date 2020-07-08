@@ -13,6 +13,10 @@ import pandas as pd
 from io import StringIO
 
 
+DATATABLE_PREVIEW_COL_WIDTH = 80
+DATATABLE_PREVIEW_HEIGHT = 120
+DATATABLE_PREVIEW_WIDTH = DATATABLE_PREVIEW_COL_WIDTH * 3
+
 class UIClass:
 
     def __init__(self):
@@ -34,18 +38,21 @@ class UIClass:
         self.data_source_selector = Select(title='Step 1/5: Select Data', value='Not Selected',
                                        options=['Not Selected', 'Use Example Data', 'Upload Data'])
         self.file_input = FileInput(accept='.csv,.xlsx')
-        self.data_table = DataTable(height=100)
+        self.data_table = DataTable(height=DATATABLE_PREVIEW_HEIGHT,
+                                    width=DATATABLE_PREVIEW_WIDTH,
+                                    fit_columns=False, index_position=None,
+                                    margin=(0,15,0,15), #aspect_ratio=0.5,
+                                    #default_size=50
+                                    )
         self.data_preview_paragraph = Paragraph(text='Data Preview:')
         self.values_col_selector = Select(title='Step 2/5: Select column with demand values', value='Not Selected',
                                        options=['Not Selected'])
         self.product_id_col_selector = Select(title='Step 3/5: Select column with product ID', value='Not Selected',
                                        options=['Not Selected'])
         self.product_selector_plotting = Select(title='Select Product to Display', value='v1', options=['v1', 'v2'])
+        self.info_paragraph = PreText(text='Details:\nThis window will contain additional information,\nas you interact with the app.')
         # self.text = TextInput(title='title', value='my sine wave')
         # self.offset = Slider(title='offset', value=0.0, start=-5.0, end=5.0, step=0.1)
-        # self.amplitude = Slider(title='amplitude', value=1.0, start=-5.0, end=5.0, step=0.1)
-        # self.phase = Slider(title='phase', value=0.0, start=0.0, end=2 * np.pi)
-        # self.freq = Slider(title='frequency', value=1.0, start=0.1, end=5.1, step=0.1)
 
         self.widgets = {'data_source_selector': self.data_source_selector,
                         'file_input': self.file_input,
@@ -101,7 +108,7 @@ class UIClass:
         self.preview_input_df()
 
     def preview_input_df(self):
-        columns = [TableColumn(field=Ci, title=Ci) for Ci in self.input_df.columns]
+        columns = [TableColumn(field=Ci, title=Ci, width=DATATABLE_PREVIEW_COL_WIDTH) for Ci in self.input_df.columns]
         self.data_table.columns = columns
         self.data_table.source = ColumnDataSource(self.input_df.head(3))
         print('LAYOUT: ', self.layout)
@@ -211,12 +218,14 @@ class UIClass:
 
         self.col_left = self.inputs
         self.col_right = column(self.data_preview_paragraph)
+        #self.col_info = column()
+
 
         self.col_left.width = 300
         #self.col_right.max_width = 500
         #self.col_right.sizing_mode = 'scale_width'
 
-        self.row_data_input = row(self.col_left, self.col_right)
+        self.row_data_input = row(self.col_left, self.col_right, self.info_paragraph)
         #self.row_data_input.sizing_mode = 'scale_width'
 
         self.row_demand_plot = row(self.product_selector_plotting, self.demand_plot)
