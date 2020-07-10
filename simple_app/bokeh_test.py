@@ -13,9 +13,9 @@ import pandas as pd
 from io import StringIO
 
 
-DATATABLE_PREVIEW_COL_WIDTH = 80
-DATATABLE_PREVIEW_HEIGHT = 120
-DATATABLE_PREVIEW_WIDTH = DATATABLE_PREVIEW_COL_WIDTH * 3
+DATATABLE_PREVIEW_COL_WIDTH = 80  # pixels
+DATATABLE_PREVIEW_HEIGHT = 120  # pixels
+DATATABLE_PREVIEW_WIDTH = DATATABLE_PREVIEW_COL_WIDTH * 3  # pixels
 
 class UIClass:
 
@@ -44,13 +44,14 @@ class UIClass:
                                     margin=(0,15,0,15), #aspect_ratio=0.5,
                                     #default_size=50
                                     )
-        self.data_preview_paragraph = Paragraph(text='Data Preview:')
+        self.data_preview_paragraph = Paragraph(text='Data Preview:', margin=(0,15,0,15))
         self.values_col_selector = Select(title='Step 2/5: Select column with demand values', value='Not Selected',
                                        options=['Not Selected'])
         self.product_id_col_selector = Select(title='Step 3/5: Select column with product ID', value='Not Selected',
                                        options=['Not Selected'])
         self.product_selector_plotting = Select(title='Select Product to Display', value='v1', options=['v1', 'v2'])
-        self.info_paragraph = PreText(text='Details:\nThis window will contain additional information,\nas you interact with the app.')
+        self.default_info_msg = 'This window will contain additional information,\nas you interact with the app.'
+        self.info_paragraph = PreText(text='Details:\n{}'.format(self.default_info_msg))
         # self.text = TextInput(title='title', value='my sine wave')
         # self.offset = Slider(title='offset', value=0.0, start=-5.0, end=5.0, step=0.1)
 
@@ -83,25 +84,33 @@ class UIClass:
     def hide_all_widgets_except(self, widgets=[]):
         self._change_widgets_visibility(widgets, 'show')
 
+    def update_details_msg(self, msg):
+        self.info_paragraph.text = "Details:\n{}".format(msg)
+
     def select_data_source(self, attrname, old_val, new_val):
         print('===INSIDE select_data_source: {}, {}, {}'.format(attrname, old_val, new_val))
         if new_val == 'Upload Data':
+            self.update_details_msg(msg='Step 1/5: Please upload data in one of the\nfollowing formats: .CSV or .XLSX')
             self.hide_all_widgets_except(['data_source_selector', 'file_input'])
         elif new_val == 'Use Example Data':
+            self.update_details_msg(msg='Step 1/5: Using a sample toy data. You can use it\nto test the functionality of this app.')
             self.input_df = pd.read_csv('default_table.csv')
             self.prepare_values_col_selection()
             self.preview_input_df()
             self.hide_all_widgets_except(['data_source_selector', 'values_col_selector', 'data_preview_paragraph', 'data_table'])
         else: # Not Selected
+            self.update_details_msg(msg=self.default_info_msg)
             self.hide_all_widgets_except(['data_source_selector'])
 
     def upload_fit_data(self, attr, old, new):
         print('fit data upload succeeded')
+        self.update_details_msg(msg='Step 1/5: Uploading data')
         base64_message = self.file_input.value
         base64_bytes = base64_message.encode('ascii')
         message_bytes = base64.b64decode(base64_bytes)
         message = message_bytes.decode('ascii')
         self.input_df = pd.read_csv(StringIO(message), sep=',')
+        self.update_details_msg(msg='Step 1/5: Data has been successfully uploaded!')
         print('Input DF shape: {}'.format(self.input_df.shape))
         self.prepare_values_col_selection()
         self.hide_all_widgets_except(['data_source_selector', 'file_input', 'values_col_selector'])
@@ -124,8 +133,9 @@ class UIClass:
         self.values_col_selector.options = ['Not Selected'] + self.input_df.columns.tolist()
 
     def select_values_colname(self, attrname, old_val, new_val):
+        self.update_details_msg(msg='Step 2/5: Please select a column that contains\nthe demand values. Note, that all the values in\nthis column should be numerical.')
         if new_val == 'Not Selected':
-            pass
+            #pass
             self.hide_all_widgets_except(['data_source_selector',
                                           'values_col_selector',
                                           'data_table',
@@ -133,16 +143,25 @@ class UIClass:
                                           'data_table']+self.get_additional_cols_to_show())
         else:
             self.values_colname = new_val
-            available_cols = set(self.input_df.columns)
-            available_cols.remove(new_val)
-            self.product_id_col_selector.options = ['Not Selected'] + list(available_cols)
-            self.product_id_col_selector.visible=True
-            self.hide_all_widgets_except(['data_source_selector',
-                                          'values_col_selector',
-                                          'product_id_col_selector',
-                                          'data_preview_paragraph',
-                                          'data_table'
-                                          ]+self.get_additional_cols_to_show())
+            try:
+                self.input_df[self.values_colname] = self.input_df[self.values_colname].astype(float)
+                available_cols = set(self.input_df.columns)
+                available_cols.remove(new_val)
+                self.product_id_col_selector.options = ['Not Selected'] + list(available_cols)
+                self.product_id_col_selector.visible=True
+                self.hide_all_widgets_except(['data_source_selector',
+                                              'values_col_selector',
+                                              'product_id_col_selector',
+                                              'data_preview_paragraph',
+                                              'data_table'
+                                              ]+self.get_additional_cols_to_show())
+            except:
+                self.update_details_msg(msg='WARNING! Step 2/5: Not all the values\nin selected column are numerical!')
+                self.hide_all_widgets_except(['data_source_selector',
+                                              'values_col_selector',
+                                              'data_table',
+                                              'data_preview_paragraph',
+                                              'data_table'] + self.get_additional_cols_to_show())
 
     def get_additional_cols_to_show(self):
         return ['file_input'] if self.data_source_selector.value == 'Upload Data' else []
@@ -154,6 +173,7 @@ class UIClass:
 
     # ToDo: replace 'day' with something better
     def select_product_id_colname(self, attrname, old_val, new_val):
+        self.update_details_msg(msg="Step 3/5: Please select a column that contains products' identifiers.")
         if new_val == 'Not Selected':
             self.hide_all_widgets_except(['data_source_selector',
                                           'values_col_selector',
