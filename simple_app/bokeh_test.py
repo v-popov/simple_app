@@ -78,7 +78,7 @@ class UIClass:
 
         self.values_colname = None
         self.product_id_colname = None
-        self.date_column = None
+        self.date_colname = None
         self.product_ids = []
 
 ########## WIDGETS VISIBILITY CONTROLS ##########
@@ -138,6 +138,25 @@ class UIClass:
         selector.value = new_options[0]
         selector.options = new_options
 
+    def date_col_integrity(self, date_colname):
+        if not isinstance(self.input_df[date_colname][0], str):
+            self.input_df[date_colname] = self.input_df[date_colname].astype(str)
+        if '-' in self.input_df[date_colname][0]:
+            sep = '-'
+        elif '/' in self.input_df[date_colname][0]:
+            sep = '/'
+        else:
+            return 'no separator found'
+        date_parts = self.input_df[date_colname].apply(lambda x: x.split(sep))
+        if (date_parts.apply(lambda x: len(x)) == 3).all():
+            try:
+                self.input_df[date_colname] = pd.to_datetime(self.input_df[date_colname])
+                return 'ok'
+            except:
+                return 'error converting to datetime'
+        else:
+            return 'not all dates have exactly 3 components'
+
 ########## WIDGETS ON_CHANGE METHODS ##########
     def select_data_source(self, attrname, old_val, new_val):
         print('===INSIDE select_data_source: {}, {}, {}'.format(attrname, old_val, new_val))
@@ -193,7 +212,7 @@ class UIClass:
 
     def select_date_column(self, attrname, old_val, new_val):
         self.update_details_msg(msg="Step 4/5: If there is a date column, please select it's name.\n"
-                                    "Note: it should be in one of the following formats:\n"
+                                    "Note: Dates should be in one of the following formats:\n"
                                     "yyyy-mm-dd OR mm-dd-yyyy OR yyyy/mm/dd OR mm/dd/yyyy")
         self.hide_all_widgets_except(['data_source_selector',
                                       'values_col_selector',
@@ -203,15 +222,29 @@ class UIClass:
                                       'date_col_selector'] + self.get_additional_cols_to_show())
         if new_val == 'Not Selected':
             self.last_date_picker.visible = True
-        else:
-            self.product_ids = self.input_df[self.product_id_colname].unique().astype(str).tolist()
-            self.replace_selector_options(self.product_selector_plotting, 'v1', self.product_ids)
-            self.product_selector_plotting.visible = True
 
-            self.plot_data_source = ColumnDataSource(data=self.input_df[self.input_df[self.product_id_colname] ==
-                                                                        self.product_ids[0]])
-            self.demand_plot.line(x='day', y=self.values_colname, source=self.plot_data_source)
-            self.demand_plot.visible = True
+        else:
+            self.date_colname = new_val
+            date_col_integrity_status = self.date_col_integrity(self.date_colname)
+            if date_col_integrity_status == 'ok':
+                self.product_ids = self.input_df[self.product_id_colname].unique().astype(str).tolist()
+                self.replace_selector_options(self.product_selector_plotting, 'v1', self.product_ids)
+                self.product_selector_plotting.visible = True
+
+                self.plot_data_source = ColumnDataSource(data=self.input_df[self.input_df[self.product_id_colname] ==
+                                                                            self.product_ids[0]])
+                self.demand_plot.line(x='day', y=self.values_colname, source=self.plot_data_source)
+                self.demand_plot.visible = True
+            else:
+                print('date_col_integrity_status: ', date_col_integrity_status)
+                self.update_details_msg(msg="ERROR: selected date column doesn't satisfy specified requirements:\n"
+                                            "Dates should be in one of the following formats:\n"
+                                            "yyyy-mm-dd OR mm-dd-yyyy OR yyyy/mm/dd OR mm/dd/yyyy")
+
+    # ToDo: add dropdown for specifying business days
+    def select_last_date(self, attrname, old_val, new_val):
+        print('QQQ1 ', old_val)
+        print('QQQ2 ', new_val)
 
 ########## OTHER ##########
     # https://facebook.github.io/prophet/docs/non-daily_data.html
@@ -261,6 +294,7 @@ class UIClass:
         self.product_id_col_selector.on_change('value', self.select_product_id_colname)
         self.product_selector_plotting.on_change('value', self.update_plot)
         self.date_col_selector.on_change('value', self.select_date_column)
+        self.last_date_picker.on_change('value', self.select_last_date)
 
         self.col_left = self.inputs
         self.col_right = column(self.data_preview_paragraph)
