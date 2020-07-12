@@ -26,6 +26,7 @@ class UIClass:
 
     def __init__(self):
         self.input_df = pd.DataFrame({'x': ['2010-01-01'] * DF_NUM_PREVIEW_ROWS, 'y': [0] * DF_NUM_PREVIEW_ROWS})
+        self.forecasted_df = None
         self.datefmt = DateFormatter(format='%m-%d-%Y')
         self.inputs = None
         self.x_range = [0, 10]
@@ -72,6 +73,7 @@ class UIClass:
         self.product_selector_plotting = Select(title='Select Product to Display',
                                                 value='v1',
                                                 options=['v1', 'v2'])
+        self.prediction_button = Button(label='Forecast Demand for Selected Product ID', button_type='primary')
         self.default_info_msg = 'This window will contain additional information,\nas you interact with the app.'
         self.info_paragraph = PreText(text='Details:\n{}'.format(self.default_info_msg))
         # self.text = TextInput(title='title', value='my sine wave')
@@ -89,6 +91,7 @@ class UIClass:
                         'last_date_picker': self.last_date_picker,
                         'workdays_checkboxgroup': self.workdays_checkboxgroup,
                         'workdays_apply_button': self.workdays_apply_button,
+                        'prediction_button': self.prediction_button,
                         #'': self.,
         }
 
@@ -176,6 +179,7 @@ class UIClass:
     def display_preview_plot(self):
         self.replace_selector_options(self.product_selector_plotting, 'v1', self.product_ids)
         self.product_selector_plotting.visible = True
+        self.prediction_button.visible = True
         self.demand_plot.renderers.remove(self.line1)
         self.plot_data_source = None
         self.plot_data_source = ColumnDataSource(data=self.input_df[self.input_df[self.product_id_colname] ==
@@ -278,7 +282,6 @@ class UIClass:
                                             "yyyy-mm-dd OR mm-dd-yyyy OR yyyy/mm/dd OR mm/dd/yyyy\n"
                                             "If there is no such column, use 'Not Selected' option.")
 
-    # ToDo: add dropdown for specifying business days
     def select_last_date(self, attrname, old_val, new_val):
         self.update_details_msg(msg="Alright, dates will be automatically generated for you!\n"
                                     "Select days when your business works.")
@@ -304,6 +307,39 @@ class UIClass:
                 self.display_preview_plot()
                 #self.preview_input_df() # https://stackoverflow.com/questions/40942168/how-to-create-a-bokeh-datatable-datetime-formatter
 
+    def prediction_button_pressed(self, new):
+        train_dataset = pd.DataFrame()
+        print('Preparing forecast for product: ', self.product_selector_plotting.value)
+        inds = self.input_df[self.product_id_colname] == self.product_selector_plotting.value
+        train_dataset['ds'] = pd.to_datetime(self.input_df.loc[inds, self.date_colname])
+        train_dataset['y'] = self.input_df.loc[inds, self.values_colname]
+        print('Train Dataset shape: ', train_dataset.shape)
+        for q in self.make_predictions(train_dataset):
+            if q[0] == 'msg':
+                print('Message: ', q[1])
+            else:
+                self.forecasted_df = q[1]
+                self.forecasted_df.columns = ['ds', 'y']
+                print('Done; shape: ', self.forecasted_df.shape)
+                #self.demand_plot.line(x='ds', y='yhat', source=ColumnDataSource(data=self.forecasted_df, name='line2'))
+                print(self.forecasted_df.head(5))
+
+                combined_dataset = train_dataset.append(self.forecasted_df[-30:], ignore_index=True)
+                self.demand_plot.renderers.remove(self.line1)
+                self.plot_data_source = None
+                self.plot_data_source = ColumnDataSource(data=combined_dataset)
+                self.line1 = self.demand_plot.line(x='ds',
+                                                   y='y',
+                                                   source=ColumnDataSource(data=combined_dataset),
+                                                   name='line1')
+
+                #sub_df = self.input_df[self.input_df[self.product_id_colname] == new]
+                self.plot_data_source.data.update(combined_dataset)
+                self.demand_plot.x_range.start = combined_dataset['ds'].min()
+                self.demand_plot.x_range.end = combined_dataset['ds'].max()
+
+                self.demand_plot.visible = True
+                #print(q[1].head(2)['yhat'])
 ########## OTHER ##########
     # https://facebook.github.io/prophet/docs/non-daily_data.html
     def make_predictions(self, df, days_ahead=30):
@@ -359,6 +395,7 @@ class UIClass:
         self.date_col_selector.on_change('value', self.select_date_column)
         self.last_date_picker.on_change('value', self.select_last_date)
         self.workdays_apply_button.on_click(self.workdays_button_pressed)
+        self.prediction_button.on_click(self.prediction_button_pressed)
 
         #self.col_left = self.inputs
 
@@ -392,7 +429,8 @@ class UIClass:
                                         self.last_date_picker,
                                         self.workdays_checkboxgroup,
                                         self.workdays_apply_button,
-                                        self.product_selector_plotting),
+                                        self.product_selector_plotting,
+                                        self.prediction_button),
                                  self.demand_plot))
 
         curdoc().add_root(self.layout)
