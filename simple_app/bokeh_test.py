@@ -193,6 +193,18 @@ class UIClass:
         freq = pd.offsets.CustomBusinessDay(weekmask=work_days)
         return pd.date_range(end=end_date, periods=num_periods, freq=freq)
 
+    def clean_df(self):
+        """
+        Modifies self.input_df:
+        1) Removing duplicates based on [self.date_colname, self.product_id_colname]
+        2) Sorting based on self.date_colname
+        :return: void
+        """
+        self.input_df = self.input_df[~self.input_df.duplicated(subset=[self.date_colname, self.product_id_colname],
+                                                               keep='first')]
+        self.input_df.sort_values(by=self.date_colname, inplace=True)
+        print('===RESULTED INPUT_DF SHAPE AFTER CLEANING: ', self.input_df.shape)
+
 ########## WIDGETS ON_CHANGE METHODS ##########
     def select_data_source(self, attrname, old_val, new_val):
         self.set_widget_to_default_value(['values_col_selector', 'product_id_col_selector', 'date_col_selector'])
@@ -274,6 +286,7 @@ class UIClass:
             self.date_colname = new_val
             date_col_integrity_status = self.date_col_integrity(self.date_colname)
             if date_col_integrity_status == 'ok':
+                self.clean_df()
                 self.display_preview_plot()
             else:
                 print('date_col_integrity_status: ', date_col_integrity_status)
@@ -304,27 +317,34 @@ class UIClass:
                                                                                      work_days=np.array(self.workdays_checkboxgroup.labels)[self.workdays_checkboxgroup.active],
                                                                                      num_periods=inds.sum())
                 self.input_df[self.date_colname] = pd.to_datetime(self.input_df[self.date_colname])
+                self.clean_df()
                 self.display_preview_plot()
                 #self.preview_input_df() # https://stackoverflow.com/questions/40942168/how-to-create-a-bokeh-datatable-datetime-formatter
 
+    # ToDo: different colors for historical and predicted values: https://stackoverflow.com/questions/59017033/bokeh-unable-to-generate-different-line-colours-when-using-multiline-glyph
     def prediction_button_pressed(self, new):
         train_dataset = pd.DataFrame()
         print('Preparing forecast for product: ', self.product_selector_plotting.value)
         inds = self.input_df[self.product_id_colname] == self.product_selector_plotting.value
         train_dataset['ds'] = pd.to_datetime(self.input_df.loc[inds, self.date_colname])
         train_dataset['y'] = self.input_df.loc[inds, self.values_colname]
+        # train_dataset = train_dataset[train_dataset.duplicated(subset=['ds'],keep='first')]
+        #train_dataset.sort_values(by=self.date_colname, inplace=True)
         print('Train Dataset shape: ', train_dataset.shape)
         for q in self.make_predictions(train_dataset):
             if q[0] == 'msg':
                 print('Message: ', q[1])
             else:
                 self.forecasted_df = q[1]
-                self.forecasted_df.columns = ['ds', 'y']
+                #self.forecasted_df.columns = ['ds', 'y']
                 print('Done; shape: ', self.forecasted_df.shape)
                 #self.demand_plot.line(x='ds', y='yhat', source=ColumnDataSource(data=self.forecasted_df, name='line2'))
                 print(self.forecasted_df.head(5))
 
-                combined_dataset = train_dataset.append(self.forecasted_df[-30:], ignore_index=True)
+                #combined_dataset = train_dataset.append(self.forecasted_df.tail(30), ignore_index=True)
+                d = {'ds': train_dataset['ds'].append(self.forecasted_df.tail(30)['ds']),
+                     'y': train_dataset['y'].append(self.forecasted_df.tail(30)['yhat'])}
+                combined_dataset = pd.DataFrame(d)
                 self.demand_plot.renderers.remove(self.line1)
                 self.plot_data_source = None
                 self.plot_data_source = ColumnDataSource(data=combined_dataset)
@@ -334,7 +354,7 @@ class UIClass:
                                                    name='line1')
 
                 #sub_df = self.input_df[self.input_df[self.product_id_colname] == new]
-                self.plot_data_source.data.update(combined_dataset)
+                #self.plot_data_source.data.update(combined_dataset)
                 self.demand_plot.x_range.start = combined_dataset['ds'].min()
                 self.demand_plot.x_range.end = combined_dataset['ds'].max()
 
@@ -361,7 +381,31 @@ class UIClass:
 
     def update_plot(self, attrname, old, new):
         sub_df = self.input_df[self.input_df[self.product_id_colname] == new]
-        self.plot_data_source.data.update(sub_df)
+        # try:
+        #     print('===OK_INSIDE=== colnames: ', self.plot_data_source.column_names)
+        #     self.plot_data_source.remove('ds')
+        #     print('===OK1===')
+        #     self.plot_data_source.remove('index')
+        #     print('===OK2===')
+        #     self.plot_data_source.remove('y')
+        #     print('===OK3===')
+        # except:
+        #     print('===FAIL===')
+        # for col in ['ds', 'index', 'y']:
+        #     sub_df[col] = ''
+        # self.plot_data_source.data.update(sub_df)
+        #self.plot_data_source = None
+        #self.plot_data_source = ColumnDataSource(data=sub_df)
+        self.demand_plot.renderers.remove(self.line1)
+        self.plot_data_source = None
+        self.plot_data_source = ColumnDataSource(data=sub_df)
+        self.line1 = self.demand_plot.line(x=self.date_colname,
+                                           y=self.values_colname,
+                                           source=self.plot_data_source,
+                                           name='line1')
+        print('===QQQ===')
+        print(sub_df.head())
+        print(sub_df[self.date_colname].min(), sub_df[self.date_colname].max())
         self.demand_plot.x_range.start = sub_df[self.date_colname].min()
         self.demand_plot.x_range.end = sub_df[self.date_colname].max()
         #self.demand_plot.y_range.start = sub_df[self.product_id_colname].min()
