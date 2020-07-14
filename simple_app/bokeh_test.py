@@ -1,6 +1,6 @@
 # source /home/victor/simple_app/bin/activate
 # bokeh serve --allow-websocket-origin="*" bokeh_test.py
-# ToDo: add button after selecting work days
+# ToDo: remove legend
 
 import numpy as np
 from bokeh.io import curdoc
@@ -16,11 +16,11 @@ from fbprophet import Prophet
 import datetime
 from math import radians
 
-
+DF_NUM_PREVIEW_ROWS = 4
 DATATABLE_PREVIEW_COL_WIDTH = 80  # pixels
-DATATABLE_PREVIEW_HEIGHT = 120  # pixels
+DATATABLE_PREVIEW_HEIGHT = 35 * DF_NUM_PREVIEW_ROWS  # pixels
 DATATABLE_PREVIEW_WIDTH = DATATABLE_PREVIEW_COL_WIDTH * 3  # pixels
-DF_NUM_PREVIEW_ROWS = 3
+
 
 class UIClass:
 
@@ -33,7 +33,7 @@ class UIClass:
         self.demand_plot = figure(x_range=self.x_range, x_axis_type="datetime", tools = ["pan", 'wheel_zoom'])#,wheel_zoom,box_zoom,reset,resize")
 
         self.plot_data_source = ColumnDataSource(data=self.input_df) #dict(x=[0], y=[0])
-        self.line1 = self.demand_plot.line(x='x', y='y', source=self.plot_data_source, name='line1')
+        self.line1 = self.demand_plot.line(x='x', y='y', source=self.plot_data_source, line_color='blue', name='line1')
         self.demand_plot.xaxis.formatter = DatetimeTickFormatter(days="%d %b %Y", hours="")
         self.demand_plot.axis.minor_tick_line_color = None
         self.demand_plot.xaxis[0].ticker.desired_num_ticks=10#num_minor_ticks = 0
@@ -184,7 +184,11 @@ class UIClass:
         self.plot_data_source = None
         self.plot_data_source = ColumnDataSource(data=self.input_df[self.input_df[self.product_id_colname] ==
                                                                     self.product_ids[0]])
-        self.line1 = self.demand_plot.line(x=self.date_colname, y=self.values_colname, source=self.plot_data_source, name='line1')
+        self.line1 = self.demand_plot.line(x=self.date_colname,
+                                           y=self.values_colname,
+                                           source=self.plot_data_source,
+                                           line_color='blue',
+                                           name='line1')
         self.update_plot(None, None, self.product_ids[0])
         self.demand_plot.visible = True
 
@@ -322,6 +326,7 @@ class UIClass:
                 #self.preview_input_df() # https://stackoverflow.com/questions/40942168/how-to-create-a-bokeh-datatable-datetime-formatter
 
     # ToDo: different colors for historical and predicted values: https://stackoverflow.com/questions/59017033/bokeh-unable-to-generate-different-line-colours-when-using-multiline-glyph
+    # https://docs.bokeh.org/en/latest/docs/user_guide/styling.html
     def prediction_button_pressed(self, new):
         train_dataset = pd.DataFrame()
         print('Preparing forecast for product: ', self.product_selector_plotting.value)
@@ -336,30 +341,50 @@ class UIClass:
                 print('Message: ', q[1])
             else:
                 self.forecasted_df = q[1]
-                #self.forecasted_df.columns = ['ds', 'y']
+                self.forecasted_df.columns = ['ds', 'y']
                 print('Done; shape: ', self.forecasted_df.shape)
                 #self.demand_plot.line(x='ds', y='yhat', source=ColumnDataSource(data=self.forecasted_df, name='line2'))
-                print(self.forecasted_df.head(5))
+                #print(self.forecasted_df.tail(30))
 
                 #combined_dataset = train_dataset.append(self.forecasted_df.tail(30), ignore_index=True)
                 d = {'ds': train_dataset['ds'].append(self.forecasted_df.tail(30)['ds']),
-                     'y': train_dataset['y'].append(self.forecasted_df.tail(30)['yhat'])}
+                     'y': train_dataset['y'].append(self.forecasted_df.tail(30)['y'])}
                 combined_dataset = pd.DataFrame(d)
+
+                try:
+                    while len(self.demand_plot.legend[0].items) > 0:
+                        self.demand_plot.legend[0].items.pop()
+                except:
+                    print('FAIL: popping legends in prediction_button_pressed()')
+
                 self.demand_plot.renderers.remove(self.line1)
+                try:
+                    self.demand_plot.renderers.remove(self.line2)
+                except:
+                    pass
+
                 self.plot_data_source = None
                 self.plot_data_source = ColumnDataSource(data=combined_dataset)
-                self.line1 = self.demand_plot.line(x='ds',
-                                                   y='y',
-                                                   source=ColumnDataSource(data=combined_dataset),
-                                                   name='line1')
+                self.line1 = self.demand_plot.line(x=train_dataset['ds'],
+                                                   y=train_dataset['y'],
+                                                   line_color='blue',
+                                                   name='line1',
+                                                   legend_label='Historical')
+                self.line2 = self.demand_plot.line(x=train_dataset['ds'].tail(1).append(self.forecasted_df['ds'].tail(30)),
+                                                   y=train_dataset['y'].tail(1).append(self.forecasted_df['y'].tail(30)),
+                                                   line_color='red',
+                                                   name='line2',
+                                                   legend_label='Forecast')
+                #print('QQQ ', self.demand_plot.select(name="line2"))
+                self.demand_plot.legend.location = "top_left"
 
-                #sub_df = self.input_df[self.input_df[self.product_id_colname] == new]
-                #self.plot_data_source.data.update(combined_dataset)
                 self.demand_plot.x_range.start = combined_dataset['ds'].min()
                 self.demand_plot.x_range.end = combined_dataset['ds'].max()
+                self.demand_plot.y_range.start = combined_dataset['y'].min()
+                self.demand_plot.y_range.end = combined_dataset['y'].max()
 
                 self.demand_plot.visible = True
-                #print(q[1].head(2)['yhat'])
+
 ########## OTHER ##########
     # https://facebook.github.io/prophet/docs/non-daily_data.html
     def make_predictions(self, df, days_ahead=30):
@@ -370,54 +395,39 @@ class UIClass:
         future = prophet.make_future_dataframe(periods=days_ahead)
         forecast = prophet.predict(future)
         yield ['results', forecast[['ds', 'yhat']]]
-    # train_dataset = pd.DataFrame()
-    # train_dataset['ds'] = pd.to_datetime(X["Date"])
-    # train_dataset['y'] = y
-    # for q in make_predictions(train_dataset):
-    #     if q[0] == 'msg':
-    #         print('Message: ', q[1])
-    #     else:
-    #         print(q[1].head(2)['yhat'])
 
     def update_plot(self, attrname, old, new):
+        try:
+            while len(self.demand_plot.legend[0].items) > 0:
+                self.demand_plot.legend[0].items.pop()
+        except:
+            print('FAIL: popping legends in update_plot()')
+        try:
+            self.demand_plot.renderers.remove(self.line2)
+        except:
+            pass
+
         sub_df = self.input_df[self.input_df[self.product_id_colname] == new]
-        # try:
-        #     print('===OK_INSIDE=== colnames: ', self.plot_data_source.column_names)
-        #     self.plot_data_source.remove('ds')
-        #     print('===OK1===')
-        #     self.plot_data_source.remove('index')
-        #     print('===OK2===')
-        #     self.plot_data_source.remove('y')
-        #     print('===OK3===')
-        # except:
-        #     print('===FAIL===')
-        # for col in ['ds', 'index', 'y']:
-        #     sub_df[col] = ''
-        # self.plot_data_source.data.update(sub_df)
-        #self.plot_data_source = None
-        #self.plot_data_source = ColumnDataSource(data=sub_df)
+
         self.demand_plot.renderers.remove(self.line1)
         self.plot_data_source = None
         self.plot_data_source = ColumnDataSource(data=sub_df)
         self.line1 = self.demand_plot.line(x=self.date_colname,
                                            y=self.values_colname,
                                            source=self.plot_data_source,
+                                           line_color='blue',
+                                           legend_label='Historical',
                                            name='line1')
-        print('===QQQ===')
-        print(sub_df.head())
-        print(sub_df[self.date_colname].min(), sub_df[self.date_colname].max())
+        self.demand_plot.legend.location = "top_left"
         self.demand_plot.x_range.start = sub_df[self.date_colname].min()
         self.demand_plot.x_range.end = sub_df[self.date_colname].max()
-        #self.demand_plot.y_range.start = sub_df[self.product_id_colname].min()
-        #self.demand_plot.y_range.end = sub_df[self.product_id_colname].max()
+        self.demand_plot.y_range.start = sub_df[self.values_colname].min()
+        self.demand_plot.y_range.end = sub_df[self.values_colname].max()
 
     def display(self):
         self.file_input.on_change('value', self.upload_fit_data)
         self.plot = figure(plot_height=400, plot_width=400, title='my sine wave',
-                      tools='crosshair,pan,reset,save,wheel_zoom',
-                      #x_range=[0, 4 * np.pi], y_range=[-2.5, 2.5]
-                           )
-
+                      tools='crosshair,pan,reset,save,wheel_zoom')
 
         # Set up layouts and add to document
         self.inputs = column(self.data_source_selector,
