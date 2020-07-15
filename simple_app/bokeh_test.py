@@ -1,6 +1,6 @@
 # source /home/victor/simple_app/bin/activate
 # bokeh serve --allow-websocket-origin="*" bokeh_test.py
-# ToDo: remove legend
+# ToDo: check that date gaps are the same
 
 import numpy as np
 from bokeh.io import curdoc
@@ -325,13 +325,11 @@ class UIClass:
                 self.display_preview_plot()
                 #self.preview_input_df() # https://stackoverflow.com/questions/40942168/how-to-create-a-bokeh-datatable-datetime-formatter
 
-    # ToDo: different colors for historical and predicted values: https://stackoverflow.com/questions/59017033/bokeh-unable-to-generate-different-line-colours-when-using-multiline-glyph
-    # https://docs.bokeh.org/en/latest/docs/user_guide/styling.html
     def prediction_button_pressed(self, new):
         train_dataset = pd.DataFrame()
         print('Preparing forecast for product: ', self.product_selector_plotting.value)
         inds = self.input_df[self.product_id_colname] == self.product_selector_plotting.value
-        train_dataset['ds'] = pd.to_datetime(self.input_df.loc[inds, self.date_colname])
+        train_dataset['ds'] = self.input_df.loc[inds, self.date_colname]
         train_dataset['y'] = self.input_df.loc[inds, self.values_colname]
         # train_dataset = train_dataset[train_dataset.duplicated(subset=['ds'],keep='first')]
         #train_dataset.sort_values(by=self.date_colname, inplace=True)
@@ -386,6 +384,15 @@ class UIClass:
                 self.demand_plot.visible = True
 
 ########## OTHER ##########
+    def dates_diff_count(self, df, product_name):
+        days_diffs = (df[1:][self.date_colname].values - df[:-1][self.date_colname].values) / 1000000000 / 60 / 60 / 24
+        unique_diffs, diffs_counts = np.unique(days_diffs, return_counts=True)
+        msg = 'Product: {}:\n# Days Delta ; Count\n'.format(product_name)
+        for value, count in zip(unique_diffs, diffs_counts):
+            msg += '{:10} ; {}\n'.format(value, count)
+        msg += 'If there is more than one unique value\nit can make forecast less accurate'
+        self.update_details_msg(msg=msg)
+
     # https://facebook.github.io/prophet/docs/non-daily_data.html
     def make_predictions(self, df, days_ahead=30):
         yield ['msg', 'training model']
@@ -408,7 +415,7 @@ class UIClass:
             pass
 
         sub_df = self.input_df[self.input_df[self.product_id_colname] == new]
-
+        self.dates_diff_count(sub_df, new)
         self.demand_plot.renderers.remove(self.line1)
         self.plot_data_source = None
         self.plot_data_source = ColumnDataSource(data=sub_df)
@@ -424,6 +431,7 @@ class UIClass:
         self.demand_plot.y_range.start = sub_df[self.values_colname].min()
         self.demand_plot.y_range.end = sub_df[self.values_colname].max()
 
+########## MAIN ##########
     def display(self):
         self.file_input.on_change('value', self.upload_fit_data)
         self.plot = figure(plot_height=400, plot_width=400, title='my sine wave',
